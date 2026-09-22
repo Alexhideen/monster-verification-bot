@@ -9,7 +9,7 @@ from aiogram.types import (
     CallbackQuery,
 )
 
-TOKEN = "8902602483:AAHFH874cYN0LqwIYPtzDwKw-EaIlyu2bLg"
+TOKEN = "YOUR_TOKEN"
 
 ADMIN_ID = 8547664737
 
