@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -9,7 +10,7 @@ from aiogram.types import (
     CallbackQuery,
 )
 
-TOKEN = "YOUR_TOKEN"
+TOKEN = os.getenv("BOT_TOKEN")
 
 ADMIN_ID = 8547664737
 
