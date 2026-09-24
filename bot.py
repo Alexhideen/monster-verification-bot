@@ -1,6 +1,7 @@
 import asyncio
 import os
 
+from flask import Flask, request
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     ChatJoinRequest,
@@ -8,14 +9,15 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     CallbackQuery,
+    Update,
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
-
 ADMIN_ID = 8547664737
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
+app = Flask(__name__)
 
 pending = {}
 
@@ -34,13 +36,12 @@ async def join_request_handler(event: ChatJoinRequest):
             "для вступления в чат «отель монстров» "
             "отправь кружок, в котором назовёшь сегодняшнюю дату."
         )
-    except:
+    except Exception:
         pass
 
 
 @dp.message(F.video_note)
 async def video_note_handler(message: Message):
-
     user_id = message.from_user.id
 
     if user_id not in pending:
@@ -75,11 +76,11 @@ async def video_note_handler(message: Message):
 
 @dp.callback_query(F.data.startswith("approve:"))
 async def approve(callback: CallbackQuery):
-
     user_id = int(callback.data.split(":")[1])
     data = pending.get(user_id)
 
     if not data:
+        await callback.answer("заявка уже обработана")
         return
 
     await bot.approve_chat_join_request(
@@ -87,20 +88,18 @@ async def approve(callback: CallbackQuery):
         user_id=user_id
     )
 
-    await callback.message.edit_text(
-        "✅ пользователь принят"
-    )
-
+    await callback.message.edit_text("✅ пользователь принят")
+    await callback.answer()
     pending.pop(user_id, None)
 
 
 @dp.callback_query(F.data.startswith("decline:"))
 async def decline(callback: CallbackQuery):
-
     user_id = int(callback.data.split(":")[1])
     data = pending.get(user_id)
 
     if not data:
+        await callback.answer("заявка уже обработана")
         return
 
     await bot.decline_chat_join_request(
@@ -108,21 +107,31 @@ async def decline(callback: CallbackQuery):
         user_id=user_id
     )
 
-    await callback.message.edit_text(
-        "❌ пользователь отклонён"
-    )
-
+    await callback.message.edit_text("❌ пользователь отклонён")
+    await callback.answer()
     pending.pop(user_id, None)
 
 
-async def main():
-    await dp.start_polling(bot)
+@app.route("/", methods=["GET"])
+def home():
+    return "monster verification bot is running"
+
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    try:
+        data = request.get_json()
+        update = Update.model_validate(data)
+
+        asyncio.run(dp.feed_update(bot, update))
+
+        return "ok", 200
+
+    except Exception as e:
+        print(f"webhook error: {e}")
+        return "error", 500
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
-if __name__ == "__main__":
-    import os
-
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
