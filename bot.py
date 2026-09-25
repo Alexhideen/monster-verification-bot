@@ -1,53 +1,50 @@
-import asyncio
 import os
+import asyncio
+from datetime import datetime
 
-from flask import Flask, request
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    ChatJoinRequest,
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery,
-    Update,
-)
+from aiogram.types import Message, ChatJoinRequest, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 8547664737
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 
-bot = Bot(TOKEN)
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
-app = Flask(__name__)
 
 pending = {}
 
 
 @dp.chat_join_request()
-async def join_request_handler(event: ChatJoinRequest):
-    pending[event.from_user.id] = {
-        "chat_id": event.chat.id,
-        "user_id": event.from_user.id,
+async def new_request(request: ChatJoinRequest):
+    user = request.from_user
+
+    pending[user.id] = {
+        "chat_id": request.chat.id,
+        "user_id": user.id,
+        "name": user.full_name,
     }
 
-    try:
-        await bot.send_message(
-            event.user_chat_id,
-            "привет 👋\n\n"
-            "для вступления в чат «отель монстров» "
-            "отправь кружок, в котором назовёшь сегодняшнюю дату."
-        )
-    except Exception:
-        pass
+    await bot.send_message(
+        user.id,
+        "привет 👋\n\n"
+        "для вступления в группу напиши сегодняшнюю дату "
+        "в формате дд.мм.гггг"
+    )
 
 
-@dp.message(F.video_note)
-async def video_note_handler(message: Message):
+@dp.message(F.chat.type == "private")
+async def answer(message: Message):
     user_id = message.from_user.id
 
     if user_id not in pending:
         return
 
-    kb = InlineKeyboardMarkup(
+    today = datetime.now().strftime("%d.%m.%Y")
+    answer_text = message.text.strip()
+
+    data = pending[user_id]
+
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -56,82 +53,80 @@ async def video_note_handler(message: Message):
                 ),
                 InlineKeyboardButton(
                     text="❌ отклонить",
-                    callback_data=f"decline:{user_id}"
-                ),
+                    callback_data=f"reject:{user_id}"
+                )
             ]
         ]
     )
 
-    await bot.send_video_note(
-        ADMIN_ID,
-        message.video_note.file_id
+    await bot.send_message(
+        ADMIN_CHAT_ID,
+        f"🔔 новая заявка\n\n"
+        f"👤 {data['name']}\n"
+        f"🆔 {user_id}\n"
+        f"📅 ответ: {answer_text}\n"
+        f"📌 правильная дата: {today}",
+        reply_markup=keyboard
     )
 
-    await bot.send_message(
-        ADMIN_ID,
-        f"заявка от {message.from_user.full_name}",
-        reply_markup=kb
-    )
+    await message.answer("ответ получен. ожидайте решения администратора.")
 
 
 @dp.callback_query(F.data.startswith("approve:"))
 async def approve(callback: CallbackQuery):
     user_id = int(callback.data.split(":")[1])
-    data = pending.get(user_id)
 
-    if not data:
+    if user_id not in pending:
         await callback.answer("заявка уже обработана")
         return
+
+    data = pending[user_id]
 
     await bot.approve_chat_join_request(
         chat_id=data["chat_id"],
         user_id=user_id
     )
 
-    await callback.message.edit_text("✅ пользователь принят")
-    await callback.answer()
-    pending.pop(user_id, None)
+    await bot.send_message(
+        user_id,
+        "✅ заявка одобрена. добро пожаловать!"
+    )
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("пользователь принят")
+
+    del pending[user_id]
 
 
-@dp.callback_query(F.data.startswith("decline:"))
-async def decline(callback: CallbackQuery):
+@dp.callback_query(F.data.startswith("reject:"))
+async def reject(callback: CallbackQuery):
     user_id = int(callback.data.split(":")[1])
-    data = pending.get(user_id)
 
-    if not data:
+    if user_id not in pending:
         await callback.answer("заявка уже обработана")
         return
+
+    data = pending[user_id]
 
     await bot.decline_chat_join_request(
         chat_id=data["chat_id"],
         user_id=user_id
     )
 
-    await callback.message.edit_text("❌ пользователь отклонён")
-    await callback.answer()
-    pending.pop(user_id, None)
+    await bot.send_message(
+        user_id,
+        "❌ заявка отклонена."
+    )
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.answer("заявка отклонена")
+
+    del pending[user_id]
 
 
-@app.route("/", methods=["GET"])
-def home():
-    return "monster verification bot is running"
-
-
-@app.route("/telegram/webhook", methods=["POST"])
-def telegram_webhook():
-    try:
-        data = request.get_json()
-        update = Update.model_validate(data)
-
-        asyncio.run(dp.feed_update(bot, update))
-
-        return "ok", 200
-
-    except Exception as e:
-        print(f"webhook error: {e}")
-        return "error", 500
+async def main():
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    asyncio.run(main())
