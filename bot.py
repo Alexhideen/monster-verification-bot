@@ -32,6 +32,11 @@ async def new_request(request: ChatJoinRequest):
     )
 
 
+@dp.message(F.text == "/id")
+async def get_id(message: Message):
+    await message.answer(f"🆔 id этого чата: `{message.chat.id}`")
+
+
 @dp.message(F.chat.type == "private")
 async def answer(message: Message):
     user_id = message.from_user.id
